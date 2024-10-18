@@ -9,7 +9,7 @@ async function seedDB() {
   const hashPassword = await bcrypt.hash("secret", salt);
 
   const user = {
-    _id: mongoose.Types.ObjectId(1),
+    _id: mongoose.Types.ObjectId(1),// _id: new mongoose.Types.ObjectId(),
     name: "Admin",
     email: "admin@jsonapi.com",
     password: hashPassword,
