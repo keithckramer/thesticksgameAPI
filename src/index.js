@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
 import { dbConnect } from "./mongo/index.js"; // Keep this as you already have it
-import { meRoutes } from "./routes/index.js";
+import { gameRoutes, meRoutes } from "./routes/index.js";
 import { authRoutes } from "./routes/index.js";
 import path from "path";
 import * as fs from "fs";
@@ -35,6 +35,7 @@ dbConnect(uri);
 // Middleware
 app.use(cors(corsOptions));
 app.use(bodyParser.json({ type: "application/vnd.api+json", strict: false }));
+app.use(express.json());
 
 // Serve static landing page
 app.get("/", function (req, res) {
@@ -45,6 +46,7 @@ app.get("/", function (req, res) {
 // Routes
 app.use("/", authRoutes);
 app.use("/me", meRoutes);
+app.use("/",gameRoutes);
 
 // Cron job (Reseeding the database at a scheduled time)
 if (process.env.SCHEDULE_HOUR) {
