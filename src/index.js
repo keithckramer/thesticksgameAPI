@@ -4,8 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
 import { dbConnect } from "./mongo/index.js"; // Keep this as you already have it
-import { gameRoutes, meRoutes } from "./routes/index.js";
-import { authRoutes } from "./routes/index.js";
+import { userRoutes, meRoutes, authRoutes, gameRoutes, weekScheduleRoutes } from './routes/index.js';
 import path from "path";
 import * as fs from "fs";
 import cron from "node-cron";
@@ -43,10 +42,16 @@ app.get("/", function (req, res) {
   res.sendFile(path.join(__dirname, "/src/landing/index.html"));
 });
 
-// Routes
+//Routes
 app.use("/", authRoutes);
 app.use("/me", meRoutes);
-app.use("/",gameRoutes);
+//app.use("/game",gameRoutes);
+//app.use("/weekschedule", weekScheduleRoutes);
+app.use('/api/users', userRoutes);
+// app.use('/api/me', meRoutes);
+// app.use('/api/auth', authRoutes);
+app.use('/api/games', gameRoutes);
+app.use("/api/weekschedule", weekScheduleRoutes);
 
 // Cron job (Reseeding the database at a scheduled time)
 if (process.env.SCHEDULE_HOUR) {
