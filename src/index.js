@@ -3,12 +3,12 @@ import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
-import { dbConnect } from "./mongo";
-import { meRoutes, authRoutes } from "./routes";
+import { dbConnect } from "./mongo/index.js";
+import { meRoutes, authRoutes } from "./routes/index.js";
 import path from "path";
 import * as fs from "fs";
 import cron from "node-cron";
-import ReseedAction from "./mongo/ReseedAction";
+import ReseedAction from "./mongo/ReseedAction.js";
 
 dotenv.config();
 
@@ -41,7 +41,7 @@ app.use("/", authRoutes);
 app.use("/me", meRoutes);
 
 if (process.env.SCHEDULE_HOUR) {
-  cron.schedule(`0 */${process.env.SCHEDULE_HOUR} * * *'`, () => {
+  cron.schedule(`0 */${process.env.SCHEDULE_HOUR} * * *`, () => {
     ReseedAction();
   });
 }
