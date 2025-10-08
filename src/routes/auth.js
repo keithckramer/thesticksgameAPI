@@ -3,7 +3,7 @@ import User from "../schemas/user.schema.js";
 import Invite from "../schemas/invite.schema.js";
 import { hashPassword, verifyPassword, signToken } from "../utils/auth.js";
 import { genToken } from "../utils/tokens.js";
-import { requireAdminKey } from "../middleware/requireAdmin.js";
+import { requireAdminKey } from "../middleware/requireAdminKey.js";
 
 const r = Router();
 
