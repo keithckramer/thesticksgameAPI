@@ -2,7 +2,7 @@ import dotenv from "dotenv";
 import nodemailer from "nodemailer";
 import randomToken from "random-token";
 import bcrypt from "bcrypt";
-import { userModel } from "../../schemas/user.schema.js";
+import User from "../../schemas/user.schema.js";
 import { passwordResetModel } from "../../schemas/passwordResets.schema.js";
 import jwt from 'jsonwebtoken';
 
@@ -19,7 +19,7 @@ const transporter = nodemailer.createTransport({
 
 export const loginRouteHandler = async (req, res, email, password) => {
   //Check If User Exists
-  let foundUser = await userModel.findOne({ email: email });
+  let foundUser = await User.findOne({ email: email });
   if (foundUser == null) {
     return res.status(400).json({
       errors: [{ detail: "Credentials don't match any existing users" }],
@@ -51,7 +51,7 @@ export const loginRouteHandler = async (req, res, email, password) => {
 
 export const registerRouteHandler = async (req, res, name, email, password) => {
   // check if user already exists
-  let foundUser = await userModel.findOne({ email: email });
+  let foundUser = await User.findOne({ email: email });
   if (foundUser) {
     // does not get the error
     return res.status(400).json({ message: "Email is already in use" });
@@ -68,7 +68,7 @@ export const registerRouteHandler = async (req, res, name, email, password) => {
   const salt = await bcrypt.genSalt(10);
   const hashPassword = await bcrypt.hash(password, salt);
 
-  const newUser = new userModel({
+  const newUser = new User({
     name: name,
     email: email,
     password: hashPassword,
@@ -88,7 +88,7 @@ export const registerRouteHandler = async (req, res, name, email, password) => {
 };
 
 export const forgotPasswordRouteHandler = async (req, res, email) => {
-  let foundUser = await userModel.findOne({ email: email });
+  let foundUser = await User.findOne({ email: email });
 
   if (!foundUser) {
     return res.status(400).json({
@@ -123,7 +123,7 @@ export const forgotPasswordRouteHandler = async (req, res, email) => {
 };
 
 export const resetPasswordRouteHandler = async (req, res) => {
-  const foundUser = await userModel.findOne({
+  const foundUser = await User.findOne({
     email: req.body.data.attributes.email,
   });
 
@@ -152,7 +152,7 @@ export const resetPasswordRouteHandler = async (req, res) => {
 
     await passwordResetModel.deleteOne({ email: foundUser.email });
 
-    await userModel.updateOne(
+    await User.updateOne(
       { email: foundUser.email },
       { $set: { "password": hashPassword } }
     );

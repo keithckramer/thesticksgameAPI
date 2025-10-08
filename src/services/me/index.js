@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import dotenv from 'dotenv';
-import { userModel } from "../../schemas/user.schema.js";
+import User from "../../schemas/user.schema.js";
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -34,7 +34,7 @@ export const getProfileRouteHandler = (req, res) => {
 export const patchProfileRouteHandler = async (req, res) => {
   const currentDataOfUser = req.user;
   const { name, email, newPassword, confirmPassword } = req.body.data.attributes;
-  const foundUser = await userModel.findOne({ email: currentDataOfUser.email});
+  const foundUser = await User.findOne({ email: currentDataOfUser.email});
 
   if (!foundUser) {
     res.status(400).json({error: 'No user matches the credentials'});
@@ -46,7 +46,7 @@ export const patchProfileRouteHandler = async (req, res) => {
       const salt = await bcrypt.genSalt(10);
       const hashPassword = await bcrypt.hash(newPassword, salt);
       try{
-        await userModel.updateOne( { email: foundUser.email }, { $set :{ "name": name, "email": email, "password": hashPassword } });
+        await User.updateOne( { email: foundUser.email }, { $set :{ "name": name, "email": email, "password": hashPassword } });
       } catch(err) {
         console.error(err);
       }
@@ -64,7 +64,7 @@ export const patchProfileRouteHandler = async (req, res) => {
       res.send(sentData);
     } else if (!newPassword) {
       try {
-        await userModel.updateOne( { email: foundUser.email }, { $set :{ "name": name, "email": email } });
+        await User.updateOne( { email: foundUser.email }, { $set :{ "name": name, "email": email } });
       } catch(err) {
         console.error(err);
       }

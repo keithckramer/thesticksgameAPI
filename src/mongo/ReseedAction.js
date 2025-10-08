@@ -1,12 +1,12 @@
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
-import { userModel } from "../schemas/user.schema.js";
+import User from "../schemas/user.schema.js";
 import { dbConnect } from "./index.js";
 
 const ReseedAction = () => {
   async function clear() {
     dbConnect();
-    await userModel.deleteMany({});
+    await User.deleteMany({});
     console.log("DB cleared");
   }
 
@@ -24,7 +24,7 @@ const ReseedAction = () => {
       profile_image: "../../images/admin.jpg",
     };
 
-    const admin = new userModel(user);
+    const admin = new User(user);
     await admin.save();
 
     console.log("DB seeded");
