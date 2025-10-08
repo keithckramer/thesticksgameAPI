@@ -3,7 +3,9 @@ import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
 import { dbConnect } from "./mongo/index.js";
-import { meRoutes, authRoutes } from "./routes/index.js";
+import authRoutes from "./routes/auth.js";
+import meRoutes from "./routes/me.js";
+import adminRoutes from "./routes/admin.js";
 import healthRoutes from "./routes/health.js";
 import path from "path";
 import * as fs from "fs";
@@ -41,6 +43,7 @@ app.get("/", function (req, res) {
 
 app.use("/", authRoutes);
 app.use("/me", meRoutes);
+app.use("/admin", adminRoutes);
 app.use("/health", healthRoutes);
 
 if (process.env.SCHEDULE_HOUR) {
