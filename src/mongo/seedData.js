@@ -1,6 +1,6 @@
 import bcrypt from "bcrypt";
 import mongoose from "mongoose";
-import { userModel } from "../schemas/user.schema.js";
+import User from "../schemas/user.schema.js";
 import { dbConnect } from "../mongo/index.js";
 
 async function seedDB() {
@@ -17,7 +17,7 @@ async function seedDB() {
     profile_image: "../../images/admin.jpg",
   };
 
-  const admin = new userModel(user);
+  const admin = new User(user);
   await admin.save();
 
   console.log("DB seeded");

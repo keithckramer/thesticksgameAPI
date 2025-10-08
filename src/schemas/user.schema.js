@@ -1,19 +1,15 @@
 import mongoose from "mongoose";
 
-const userSchema = new mongoose.Schema({
-  name: { required: true, type: String },
-  email: { required: true, type: String },
-  email_verified_at: { type: Date },
-  password: { required: true, type: String },
-  profile_image: { type: String },
-  created_at: { type: Date },
-  updated_at: { type: Date },
-});
+const UserSchema = new mongoose.Schema(
+  {
+    email: { type: String, unique: true, sparse: true, trim: true, lowercase: true },
+    phone: { type: String, unique: true, sparse: true, trim: true },
+    name:  { type: String, trim: true },
+    passwordHash: { type: String, required: true },
+    roles: { type: [String], default: ["user"] },
+    lastLoginAt: Date,
+  },
+  { timestamps: true }
+);
 
-userSchema.virtual("id").get(function () {
-  return this._id.toHexString();
-});
-
-userSchema.set("toJSON", { virtuals: true });
-
-export const userModel = mongoose.model("User", userSchema);
+export default mongoose.model("User", UserSchema);
