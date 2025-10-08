@@ -5,6 +5,7 @@ import dotenv from "dotenv";
 import "./passport.js";
 import { dbConnect } from "./mongo/index.js";
 import { meRoutes, authRoutes } from "./routes/index.js";
+import healthRoutes from "./routes/health.js";
 import path from "path";
 import * as fs from "fs";
 import cron from "node-cron";
@@ -39,6 +40,7 @@ app.get("/", function (req, res) {
 
 app.use("/", authRoutes);
 app.use("/me", meRoutes);
+app.use("/health", healthRoutes);
 
 if (process.env.SCHEDULE_HOUR) {
   cron.schedule(`0 */${process.env.SCHEDULE_HOUR} * * *`, () => {
