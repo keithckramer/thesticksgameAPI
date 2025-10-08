@@ -1,5 +1,4 @@
 import express from "express";
-import bodyParser from "body-parser";
 import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
@@ -31,7 +30,9 @@ const corsOptions = {
 dbConnect();
 
 app.use(cors(corsOptions));
-app.use(bodyParser.json({ type: "application/vnd.api+json", strict: false }));
+app.use(express.json());
+app.use(express.json({ type: "application/vnd.api+json", strict: false }));
+app.use(express.urlencoded({ extended: true }));
 
 app.get("/", function (req, res) {
   const __dirname = fs.realpathSync(".");
