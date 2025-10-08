@@ -36,6 +36,12 @@ For your local development you need to have `Node.js` and `npm` version 16 or ab
 To install the project you need to have version 16 of Node.js and npm version 8. The first step is to run `npm install` command. Next you need to copy the `.env.example` file and name it `.env`. There are the variables for the database and the URLs:
 - DB_LINK="mongodb-link-to-connect"
 
+> **Note:** `DB_LINK` may be either a full MongoDB connection string (including
+> protocol, credentials, and options) or the host segment that will be
+> appended to `mongodb+srv://`. When passing credentials inline, ensure the
+> username/password are percent-encoded if they contain special characters;
+> the application will attempt to encode them automatically when possible.
+
 - JWT_SECRET="token"
 
 - APP_URL_CLIENT= with the default value of http://localhost:3000
