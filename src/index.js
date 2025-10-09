@@ -1,7 +1,23 @@
+import dotenv from "dotenv";
+
+dotenv.config();
+
+function validateEnv() {
+  const missing = [];
+  if (!process.env.JWT_SECRET) missing.push("JWT_SECRET");
+  if (!process.env.ADMIN_KEY) missing.push("ADMIN_KEY");
+  if (!process.env.DB_LINK) missing.push("DB_LINK");
+  if (missing.length) {
+    console.error("❌ Missing required env vars:", missing.join(", "));
+    process.exit(1);
+  }
+}
+
+validateEnv();
+
+import "./passport.js";
 import express from "express";
 import cors from "cors";
-import dotenv from "dotenv";
-import "./passport.js";
 import { dbConnect } from "./mongo/index.js";
 import authRoutes from "./routes/auth.js";
 import meRoutes from "./routes/me.js";
@@ -11,8 +27,6 @@ import path from "path";
 import * as fs from "fs";
 import cron from "node-cron";
 import ReseedAction from "./mongo/ReseedAction.js";
-
-dotenv.config();
 
 const PORT = process.env.PORT || 8080;
 const app = express();
