@@ -1,40 +1,22 @@
 import mongoose from "mongoose";
-import dotenv from "dotenv";
 
-dotenv.config();
+export async function dbConnect() {
+  const uri = (process.env.DB_LINK || "").trim();
 
-function buildConnectionString(rawLink = "") {
-  if (!rawLink) {
-    throw new Error("DB_LINK environment variable is required");
-  }
+  console.log("[db] Checking DB_LINK:", Boolean(uri), "length:", uri.length);
 
-  if (!rawLink.includes("://")) {
-    const base = `mongodb+srv://${rawLink}`;
-    return base.includes("?") ? base : `${base}?retryWrites=true&w=majority`;
+  if (!uri) {
+    console.error("❌ DB_LINK missing. Set it in .env or server env vars.");
+    process.exit(1);
   }
 
   try {
-    const url = new URL(rawLink);
-
-    if (url.username) {
-      url.username = encodeURIComponent(decodeURIComponent(url.username));
-    }
-
-    if (url.password) {
-      url.password = encodeURIComponent(decodeURIComponent(url.password));
-    }
-
-    return url.toString();
-  } catch (error) {
-    console.warn("Failed to normalize DB connection string:", error.message);
-    return rawLink;
+    mongoose.set("strictQuery", false);
+    console.log("[db] Connecting to Mongo…");
+    await mongoose.connect(uri);
+    console.log("✅ Mongo connected");
+  } catch (err) {
+    console.error("❌ Mongo connection failed:", err.message);
+    process.exit(1);
   }
 }
-
-export const dbConnect = () => {
-  mongoose.connection.once("open", () => console.log("DB connection"));
-
-  const connectionString = buildConnectionString(process.env.DB_LINK);
-
-  return mongoose.connect(connectionString, { keepAlive: true });
-};
