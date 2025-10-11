@@ -18,8 +18,8 @@ router.post("/logout", (req, res) => {
 });
 
 router.post("/register", async (req, res) => {
-  const { name, email, password } = req.body.data.attributes;
-  await registerRouteHandler(req, res, name, email, password);
+  const { name, email, password, inviteCode } = req.body.data.attributes;
+  await registerRouteHandler(req, res, name, email, password, inviteCode);
 });
 
 router.post("/password-forgot", async (req, res) => {

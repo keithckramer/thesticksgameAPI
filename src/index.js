@@ -4,7 +4,7 @@ import cors from "cors";
 import dotenv from "dotenv";
 import "./passport.js";
 import { dbConnect } from "./mongo/index.js";
-import { meRoutes, authRoutes } from "./routes/index.js";
+import { meRoutes, authRoutes, invitesRoutes } from "./routes/index.js";
 import healthRoutes from "./routes/health.js";
 import path from "path";
 import * as fs from "fs";
@@ -31,6 +31,7 @@ const corsOptions = {
 dbConnect();
 
 app.use(cors(corsOptions));
+app.use(bodyParser.json());
 app.use(bodyParser.json({ type: "application/vnd.api+json", strict: false }));
 
 app.get("/", function (req, res) {
@@ -40,6 +41,7 @@ app.get("/", function (req, res) {
 
 app.use("/", authRoutes);
 app.use("/me", meRoutes);
+app.use("/api/invites", invitesRoutes);
 app.use("/health", healthRoutes);
 
 if (process.env.SCHEDULE_HOUR) {

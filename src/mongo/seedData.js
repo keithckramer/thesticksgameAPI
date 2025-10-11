@@ -13,6 +13,7 @@ async function seedDB() {
     name: "Admin",
     email: "admin@jsonapi.com",
     password: hashPassword,
+    role: "admin",
     created_at: new Date(),
     profile_image: "../../images/admin.jpg",
   };

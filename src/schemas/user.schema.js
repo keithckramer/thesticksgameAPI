@@ -6,6 +6,7 @@ const userSchema = new mongoose.Schema({
   email_verified_at: { type: Date },
   password: { required: true, type: String },
   profile_image: { type: String },
+  role: { type: String, default: "user" },
   created_at: { type: Date },
   updated_at: { type: Date },
 });

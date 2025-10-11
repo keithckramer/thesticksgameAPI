@@ -4,6 +4,7 @@ import randomToken from "random-token";
 import bcrypt from "bcrypt";
 import { userModel } from "../../schemas/user.schema.js";
 import { passwordResetModel } from "../../schemas/passwordResets.schema.js";
+import InviteModel from "../../models/Invite.js";
 import jwt from 'jsonwebtoken';
 
 dotenv.config();
@@ -19,7 +20,8 @@ const transporter = nodemailer.createTransport({
 
 export const loginRouteHandler = async (req, res, email, password) => {
   //Check If User Exists
-  let foundUser = await userModel.findOne({ email: email });
+  const normalizedEmail = email.toLowerCase();
+  let foundUser = await userModel.findOne({ email: normalizedEmail });
   if (foundUser == null) {
     return res.status(400).json({
       errors: [{ detail: "Credentials don't match any existing users" }],
@@ -49,12 +51,53 @@ export const loginRouteHandler = async (req, res, email, password) => {
   }
 };
 
-export const registerRouteHandler = async (req, res, name, email, password) => {
+const markInviteExpired = async (invite) => {
+  if (invite.status !== "expired") {
+    invite.status = "expired";
+    await invite.save();
+  }
+};
+
+export const registerRouteHandler = async (
+  req,
+  res,
+  name,
+  email,
+  password,
+  inviteCode
+) => {
+  const normalizedEmail = email.toLowerCase();
   // check if user already exists
-  let foundUser = await userModel.findOne({ email: email });
+  let foundUser = await userModel.findOne({ email: normalizedEmail });
   if (foundUser) {
     // does not get the error
     return res.status(400).json({ message: "Email is already in use" });
+  }
+
+  let invite = null;
+  if (inviteCode) {
+    invite = await InviteModel.findOne({ code: inviteCode }).exec();
+
+    if (!invite) {
+      return res.status(404).json({ message: "Invite not found" });
+    }
+
+    if (invite.expiresAt && invite.expiresAt.getTime() < Date.now()) {
+      await markInviteExpired(invite);
+      return res.status(410).json({ message: "Invite has expired" });
+    }
+
+    if (invite.status === "revoked") {
+      return res.status(403).json({ message: "Invite has been revoked" });
+    }
+
+    if (invite.status === "registered") {
+      return res.status(409).json({ message: "Invite has already been used" });
+    }
+
+    if (invite.email && invite.email !== normalizedEmail) {
+      return res.status(400).json({ message: "Invite email does not match" });
+    }
   }
 
   // check password to exist and be at least 8 characters long
@@ -70,10 +113,18 @@ export const registerRouteHandler = async (req, res, name, email, password) => {
 
   const newUser = new userModel({
     name: name,
-    email: email,
+    email: normalizedEmail,
     password: hashPassword,
+    role: invite?.role || "user",
   });
   await newUser.save();
+
+  if (invite) {
+    invite.acceptedAt = invite.acceptedAt || new Date();
+    invite.status = "registered";
+    invite.registeredUserId = newUser._id;
+    await invite.save();
+  }
 
   // Generate JWT token
   const token = jwt.sign({ id: newUser.id, email: newUser.email }, "token", {
@@ -88,7 +139,8 @@ export const registerRouteHandler = async (req, res, name, email, password) => {
 };
 
 export const forgotPasswordRouteHandler = async (req, res, email) => {
-  let foundUser = await userModel.findOne({ email: email });
+  const normalizedEmail = email.toLowerCase();
+  let foundUser = await userModel.findOne({ email: normalizedEmail });
 
   if (!foundUser) {
     return res.status(400).json({
@@ -123,8 +175,9 @@ export const forgotPasswordRouteHandler = async (req, res, email) => {
 };
 
 export const resetPasswordRouteHandler = async (req, res) => {
+  const normalizedEmail = req.body.data.attributes.email.toLowerCase();
   const foundUser = await userModel.findOne({
-    email: req.body.data.attributes.email,
+    email: normalizedEmail,
   });
 
   if (!foundUser || !foundToken) {
