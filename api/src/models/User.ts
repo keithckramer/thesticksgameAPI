@@ -1,10 +1,12 @@
 import { Schema, Model, Document, model } from 'mongoose';
+import { Roles, DEFAULT_ROLE, type Role } from '../types/roles';
 import { comparePassword, hashPassword } from '../utils/hash';
 
 export interface IUser extends Document {
   email: string;
   phone?: string;
   password: string;
+  role: Role;
   comparePassword(candidate: string): Promise<boolean>;
 }
 
@@ -39,6 +41,12 @@ const UserSchema = new Schema<IUser, IUserModel>(
       required: true,
       minlength: 12,
     },
+    role: {
+      type: String,
+      enum: Object.values(Roles),
+      default: DEFAULT_ROLE,
+      required: true,
+    },
   },
   {
     timestamps: true,
@@ -47,6 +55,7 @@ const UserSchema = new Schema<IUser, IUserModel>(
 
 UserSchema.index({ email: 1 }, { unique: true });
 UserSchema.index({ phone: 1 }, { unique: true, sparse: true });
+UserSchema.index({ role: 1 });
 
 UserSchema.pre('save', async function preSave(this: IUser, next) {
   if (!this.isModified('password')) {

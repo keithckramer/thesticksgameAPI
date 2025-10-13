@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { DEFAULT_ROLE, ROLE_VALUES, type Role } from '../types/roles';
 
 const stripTags = (value: string): string => value.replace(/<[^>]*>/g, '');
 
@@ -31,6 +32,10 @@ export const passwordSchema = z
 
 export const sanitizeString = (value: string): string => sanitize(value);
 
+const roleValues = ROLE_VALUES as [Role, ...Role[]];
+
+export const roleSchema = z.enum(roleValues);
+
 export const registerSchema = z
   .object({
     name: z
@@ -40,10 +45,12 @@ export const registerSchema = z
     email: emailSchema,
     password: passwordSchema,
     phone: phoneSchema.optional(),
+    role: roleSchema.optional(),
   })
   .transform((data) => ({
     ...data,
     phone: data.phone ?? undefined,
+    role: data.role ?? DEFAULT_ROLE,
   }));
 
 export type RegisterInput = z.infer<typeof registerSchema>;
