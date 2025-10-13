@@ -52,4 +52,5 @@ export const requestLoggingMiddleware: RequestHandler = (req, res, next) => {
 };
 
 export const authLogger = logger.child({ component: 'auth' });
+export const auditLogger = logger.child({ component: 'audit' });
 
