@@ -10,14 +10,9 @@ export const emailSchema = z
   .string({ required_error: 'Email is required.' })
   .min(1, 'Email is required.')
   .transform(emailSanitizer)
-  .pipe(z.string().email('Invalid email address.'));
+  .pipe(z.string().email('Enter a valid email'));
 
-export const phoneSchema = z
-  .string()
-  .transform(sanitize)
-  .refine((value) => /^\+[1-9]\d{1,14}$/.test(value), {
-    message: 'Phone number must be in E.164 format.',
-  });
+export const phoneSchema = z.string().transform(sanitize);
 
 const passwordStrength = (value: string): boolean => {
   const hasUpper = /[A-Z]/.test(value);
@@ -34,20 +29,21 @@ export const passwordSchema = z
     message: 'Password must include uppercase, lowercase, number, and special character.',
   });
 
-export const createUserInputSchema = () =>
-  z
-    .object({
-      email: emailSchema,
-      phone: phoneSchema.optional(),
-      password: passwordSchema,
-    })
-    .transform((data) => ({
-      ...data,
-      phone: data.phone ?? undefined,
-    }));
-
-export type UserInput = z.infer<ReturnType<typeof createUserInputSchema>>;
-
 export const sanitizeString = (value: string): string => sanitize(value);
 
-export const parseUserInput = (input: unknown): UserInput => createUserInputSchema().parse(input);
+export const registerSchema = z
+  .object({
+    name: z
+      .string({ required_error: 'Name is required.' })
+      .transform(sanitizeString)
+      .pipe(z.string().min(1, 'Name is required.')),
+    email: emailSchema,
+    password: passwordSchema,
+    phone: phoneSchema.optional(),
+  })
+  .transform((data) => ({
+    ...data,
+    phone: data.phone ?? undefined,
+  }));
+
+export type RegisterInput = z.infer<typeof registerSchema>;
