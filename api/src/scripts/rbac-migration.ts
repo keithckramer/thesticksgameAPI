@@ -38,15 +38,18 @@ async function ensureAdminExists(): Promise<void> {
     return;
   }
 
-  const earliestUser = await User.findOne().sort({ createdAt: 1 });
+  const earliestUser = await User.findOne().sort({ createdAt: 1 }).lean();
   if (!earliestUser) {
     console.log(withPrefix('No users found to promote to admin.'));
     return;
   }
 
-  earliestUser.role = Roles.admin;
-  await earliestUser.save();
-  console.log(withPrefix(`Promoted ${earliestUser.email} to admin.`));
+  await User.updateOne(
+    { _id: earliestUser._id },
+    { $set: { role: Roles.admin } },
+    { runValidators: false },
+  );
+  console.log(withPrefix(`Promoted ${earliestUser.email} to admin (avoid lockout)`));
 }
 
 async function run(): Promise<void> {
