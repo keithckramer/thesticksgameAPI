@@ -46,6 +46,7 @@ const UserSchema = new Schema<IUser, IUserModel>(
       enum: Object.values(Roles),
       default: DEFAULT_ROLE,
       required: true,
+      index: true,
     },
   },
   {
