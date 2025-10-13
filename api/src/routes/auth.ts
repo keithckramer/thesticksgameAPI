@@ -4,6 +4,14 @@ import { Router } from 'express';
 import { z } from 'zod';
 import RefreshToken from '../models/RefreshToken';
 import User, { type IUser } from '../models/User';
+import { authLogger } from '../middleware/logging';
+import {
+  recordAuthLoginFail,
+  recordAuthLoginSuccess,
+  recordAuthRefreshFail,
+  recordAuthRefreshSuccess,
+  recordAuthSignupSuccess,
+} from '../observability/metrics';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { emailSchema, passwordSchema, phoneSchema, sanitizeString } from '../utils/validators';
 import {
@@ -136,6 +144,7 @@ const handleAuthResponse = async (user: IUser, req: Request, res: Response, stat
 };
 
 router.post('/register', registerRateLimiter, async (req, res) => {
+  const log = req.log ?? authLogger;
   try {
     const input = registerInputSchema.parse(req.body) as RegisterInput;
 
@@ -151,6 +160,8 @@ router.post('/register', registerRateLimiter, async (req, res) => {
       password: input.password,
     });
 
+    recordAuthSignupSuccess();
+    log.info({ event: 'auth.signup.success', userId: user._id.toString() });
     await handleAuthResponse(user, req, res, 201);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -163,17 +174,20 @@ router.post('/register', registerRateLimiter, async (req, res) => {
       return;
     }
 
-    console.error('Failed to register user.', error);
+    log.error({ event: 'auth.signup.error', err: error });
     res.status(500).json({ error: 'Unable to register user.' });
   }
 });
 
 router.post('/login', loginRateLimiter, async (req, res) => {
+  const log = req.log ?? authLogger;
   try {
     const input = loginInputSchema.parse(req.body) as LoginInput;
     const identifier = input.email;
 
     if (isAccountLocked(identifier)) {
+      recordAuthLoginFail();
+      log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
       res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
       return;
     }
@@ -182,10 +196,14 @@ router.post('/login', loginRateLimiter, async (req, res) => {
     if (!user) {
       const lockedUntil = registerFailedLoginAttempt(identifier);
       if (lockedUntil) {
+        recordAuthLoginFail();
+        log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
         res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
         return;
       }
 
+      recordAuthLoginFail();
+      log.warn({ event: 'auth.login.failure', reason: 'user_not_found' });
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
     }
@@ -194,15 +212,21 @@ router.post('/login', loginRateLimiter, async (req, res) => {
     if (!passwordValid) {
       const lockedUntil = registerFailedLoginAttempt(identifier);
       if (lockedUntil) {
+        recordAuthLoginFail();
+        log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
         res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
         return;
       }
 
+      recordAuthLoginFail();
+      log.warn({ event: 'auth.login.failure', reason: 'invalid_credentials', userId: user._id.toString() });
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
     }
 
     resetLoginFailures(identifier);
+    recordAuthLoginSuccess();
+    log.info({ event: 'auth.login.success', userId: user._id.toString() });
     await handleAuthResponse(user, req, res, 200);
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -210,14 +234,17 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       return;
     }
 
-    console.error('Failed to process login.', error);
+    log.error({ event: 'auth.login.error', err: error });
     res.status(500).json({ error: 'Unable to process login.' });
   }
 });
 
 router.post('/refresh', refreshRateLimiter, async (req, res) => {
+  const log = req.log ?? authLogger;
   const token = getRefreshTokenFromRequest(req);
   if (!token) {
+    recordAuthRefreshFail();
+    log.warn({ event: 'auth.refresh.failure', reason: 'missing_token' });
     res.status(401).json({ error: 'Refresh token is missing.' });
     return;
   }
@@ -227,6 +254,8 @@ router.post('/refresh', refreshRateLimiter, async (req, res) => {
     const refreshDoc = await RefreshToken.findOne({ userId: payload.sub, jti: payload.jti });
 
     if (!refreshDoc || refreshDoc.isRevoked()) {
+      recordAuthRefreshFail();
+      log.warn({ event: 'auth.refresh.failure', reason: 'revoked' });
       res.status(401).json({ error: 'Refresh token is invalid or expired.' });
       return;
     }
@@ -234,6 +263,8 @@ router.post('/refresh', refreshRateLimiter, async (req, res) => {
     if (refreshDoc.expiresAt <= new Date()) {
       refreshDoc.revokedAt = new Date();
       await refreshDoc.save();
+      recordAuthRefreshFail();
+      log.warn({ event: 'auth.refresh.failure', reason: 'expired' });
       res.status(401).json({ error: 'Refresh token is invalid or expired.' });
       return;
     }
@@ -242,31 +273,34 @@ router.post('/refresh', refreshRateLimiter, async (req, res) => {
     if (!user) {
       refreshDoc.revokedAt = new Date();
       await refreshDoc.save();
-      console.info('Refresh token revoked for missing user.', { userId: payload.sub, jti: payload.jti });
+      recordAuthRefreshFail();
+      log.warn({ event: 'auth.refresh.failure', reason: 'user_missing', userId: payload.sub });
       res.status(401).json({ error: 'Refresh token is invalid or expired.' });
       return;
     }
 
     refreshDoc.revokedAt = new Date();
     await refreshDoc.save();
-    console.info('Refresh token rotated.', {
-      userId: user._id.toString(),
-      oldJti: payload.jti,
-    });
 
     const { accessToken, jti } = await mintTokens(user, req, res);
-    console.info('New refresh token issued.', {
+    recordAuthRefreshSuccess();
+    log.info({
+      event: 'auth.refresh.success',
       userId: user._id.toString(),
-      jti,
+      oldJti: payload.jti,
+      newJti: jti,
     });
 
     res.status(200).json({ accessToken });
   } catch (error) {
+    recordAuthRefreshFail();
+    log.warn({ event: 'auth.refresh.failure', reason: 'verification_error', err: error });
     res.status(401).json({ error: 'Refresh token is invalid or expired.' });
   }
 });
 
 router.post('/logout', async (req, res) => {
+  const log = req.log ?? authLogger;
   const token = getRefreshTokenFromRequest(req);
   if (token) {
     try {
@@ -275,13 +309,10 @@ router.post('/logout', async (req, res) => {
       if (refreshDoc && !refreshDoc.isRevoked()) {
         refreshDoc.revokedAt = new Date();
         await refreshDoc.save();
-        console.info('Refresh token revoked via logout.', {
-          userId: payload.sub,
-          jti: payload.jti,
-        });
+        log.info({ event: 'auth.logout.token_revoked', userId: payload.sub, jti: payload.jti });
       }
     } catch (error) {
-      console.warn('Failed to revoke refresh token during logout.', error);
+      log.warn({ event: 'auth.logout.revocation_failed', err: error });
     }
   }
 
