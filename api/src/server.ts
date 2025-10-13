@@ -1,16 +1,20 @@
 import 'dotenv/config';
 import cors, { type CorsOptions } from 'cors';
-import express from 'express';
+import express, { type RequestHandler } from 'express';
 import type { Server } from 'http';
 import mongoose from 'mongoose';
 import authRoutes from './routes/auth';
 import passwordRoutes from './routes/password';
 import { authenticate } from './middleware/auth';
+import securityHeaders from './middleware/helmet';
+import { logger, requestLoggingMiddleware } from './middleware/logging';
 import User from './models/User';
+import { metricsHandler } from './observability/metrics';
 
 const app = express();
 
 app.set('trust proxy', 1);
+app.disable('x-powered-by');
 
 const parseOrigins = (value: string | undefined): string[] =>
   (value ?? '')
@@ -18,15 +22,57 @@ const parseOrigins = (value: string | undefined): string[] =>
     .map((origin) => origin.trim())
     .filter((origin) => origin.length > 0);
 
-const allowedOrigins = parseOrigins(process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN);
+const allowedOrigins = parseOrigins(
+  process.env.WEB_ORIGIN ?? process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN,
+);
 
-const corsOptions: CorsOptions = {
-  origin: allowedOrigins.length > 0 ? allowedOrigins : true,
-  credentials: true,
+if (allowedOrigins.length === 0) {
+  logger.warn(
+    {
+      event: 'security.cors.configuration_missing',
+    },
+    'No allowed origins configured. Browser requests will be rejected.',
+  );
+}
+
+const enforceAllowedOrigins: RequestHandler = (req, res, next) => {
+  const origin = req.headers.origin;
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.header('Vary', 'Origin');
+    next();
+    return;
+  }
+
+  req.log?.warn({ event: 'security.cors.blocked', origin });
+
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(403);
+    return;
+  }
+
+  res.status(403).json({ error: 'Origin not allowed.' });
 };
 
+const corsOptions: CorsOptions = {
+  origin: (origin, callback) => {
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+
+    callback(null, allowedOrigins.includes(origin));
+  },
+  credentials: true,
+  optionsSuccessStatus: 204,
+};
+
+app.use(requestLoggingMiddleware);
+app.use(enforceAllowedOrigins);
 app.use(cors(corsOptions));
+app.use(securityHeaders());
 app.use(express.json());
+
+app.get('/metrics', metricsHandler);
 
 app.use('/auth', authRoutes);
 app.use('/auth', passwordRoutes);
@@ -78,7 +124,7 @@ export const startServer = async (): Promise<Server> => {
 
   return new Promise<Server>((resolve) => {
     const server = app.listen(port, () => {
-      console.log(`Server listening on port ${port}`);
+      logger.info({ event: 'server.start', port }, 'Server listening');
       resolve(server);
     });
   });
@@ -86,7 +132,7 @@ export const startServer = async (): Promise<Server> => {
 
 if (process.env.NODE_ENV !== 'test') {
   startServer().catch((error) => {
-    console.error('Failed to start server.', error);
+    logger.error({ event: 'server.start.failure', err: error }, 'Failed to start server');
     process.exit(1);
   });
 }
