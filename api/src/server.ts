@@ -4,6 +4,7 @@ import express from 'express';
 import type { Server } from 'http';
 import mongoose from 'mongoose';
 import authRoutes from './routes/auth';
+import passwordRoutes from './routes/password';
 import { authenticate } from './middleware/auth';
 import User from './models/User';
 
@@ -28,6 +29,7 @@ app.use(cors(corsOptions));
 app.use(express.json());
 
 app.use('/auth', authRoutes);
+app.use('/auth', passwordRoutes);
 
 app.get('/profile', authenticate, async (req, res) => {
   const userId = req.auth?.userId;
