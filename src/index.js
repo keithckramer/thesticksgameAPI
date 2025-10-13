@@ -18,6 +18,7 @@ validateEnv();
 import "./passport.js";
 import express from "express";
 import cors from "cors";
+import cookieParser from "cookie-parser";
 import { dbConnect } from "./mongo/index.js";
 import authRoutes from "./routes/auth.js";
 import meRoutes from "./routes/me.js";
@@ -31,21 +32,18 @@ import ReseedAction from "./mongo/ReseedAction.js";
 const PORT = process.env.PORT || 8080;
 const app = express();
 
-const whitelist = [process.env.APP_URL_CLIENT];
+app.disable("x-powered-by");
+
+const corsOrigin = process.env.WEB_ORIGIN || "http://localhost:3000";
 const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || whitelist.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
+  origin: corsOrigin,
   credentials: true,
 };
 
 await dbConnect();
 
 app.use(cors(corsOptions));
+app.use(cookieParser());
 app.use(express.json());
 app.use(express.json({ type: "application/vnd.api+json", strict: false }));
 app.use(express.urlencoded({ extended: true }));

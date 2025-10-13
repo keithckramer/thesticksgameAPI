@@ -1,7 +1,9 @@
 import { Router } from "express";
+import bcrypt from "bcryptjs";
+import { z } from "zod";
 import User from "../schemas/user.schema.js";
 import Invite from "../schemas/invite.schema.js";
-import { hashPassword, verifyPassword, signToken } from "../utils/auth.js";
+import { verifyPassword, signToken } from "../utils/auth.js";
 import { genToken } from "../utils/tokens.js";
 import { requireAdminKey } from "../middleware/requireAdminKey.js";
 
@@ -26,35 +28,88 @@ r.post("/auth/accept-invite", async (req, res) => {
   return res.json({ ok: true, invite: { emailOrPhone: inv.emailOrPhone, token } });
 });
 
-// POST /auth/register  { emailOrPhone, password, name?, token? }
+const RegisterSchema = z.object({
+  name: z.string().trim().min(1, "Name is required"),
+  email: z
+    .string()
+    .trim()
+    .email("Enter a valid email")
+    .transform((value) => value.toLowerCase()),
+  password: z
+    .string()
+    .min(12, "Password must be at least 12 characters"),
+  phone: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (typeof value !== "string") return undefined;
+      const trimmed = value.trim();
+      return trimmed.length ? trimmed : undefined;
+    }),
+});
+
+const toZodIssue = (issue) => {
+  const field = (issue.path && issue.path[0]) || "form";
+  let code = "invalid";
+  if (field === "email" && issue.code === "invalid_string") code = "invalid_email";
+  else if (field === "password" && issue.code === "too_small") code = "weak_password";
+  else if (issue.code === "too_small") code = "required";
+  return { field, code, message: issue.message };
+};
+
+// POST /auth/register  { name, email, password, phone? }
 r.post("/auth/register", async (req, res) => {
-  const { emailOrPhone, password, name, token } = req.body || {};
-  const rawContact = typeof emailOrPhone === "string" ? emailOrPhone.trim() : "";
-  if (!rawContact || !password) return res.status(400).json({ error: "missing fields" });
-  const normalizedContact = rawContact.includes("@") ? rawContact.toLowerCase() : rawContact;
+  const parsed = RegisterSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    return res.status(400).json({ errors: parsed.error.issues.map(toZodIssue) });
+  }
 
-  // require a pending invite for MVP
-  const inv = await Invite.findOne({ emailOrPhone: normalizedContact, status: "pending" });
-  if (!inv) return res.status(400).json({ error: "no pending invite" });
-  if (token && token !== inv.token) return res.status(400).json({ error: "token mismatch" });
+  const { name, email, password, phone } = parsed.data;
 
-  const passwordHash = await hashPassword(password);
-  const doc = { passwordHash, name };
-  if (normalizedContact.includes("@")) doc.email = normalizedContact;
-  else doc.phone = normalizedContact;
+  const existing = await User.findOne({ email });
+  if (existing) {
+    return res.status(409).json({ error: "email_exists" });
+  }
 
-  const or = [];
-  if (doc.email) or.push({ email: doc.email });
-  if (doc.phone) or.push({ phone: doc.phone });
-  const existing = await User.findOne(or.length ? { $or: or } : {});
-  if (existing) return res.status(409).json({ error: "user exists" });
+  if (phone) {
+    const phoneOwner = await User.findOne({ phone });
+    if (phoneOwner) {
+      return res.status(409).json({ error: "phone_exists" });
+    }
+  }
 
-  const user = await User.create(doc);
-  inv.status = "accepted"; await inv.save();
+  const passwordHash = await bcrypt.hash(password, 12);
+  const user = await User.create({ name, email, phone, passwordHash });
+
+  const inviteQuery = [];
+  if (email) inviteQuery.push({ emailOrPhone: email });
+  if (phone) inviteQuery.push({ emailOrPhone: phone });
+  if (inviteQuery.length) {
+    const invite = await Invite.findOne({
+      status: "pending",
+      $or: inviteQuery,
+    });
+    if (invite) {
+      invite.status = "accepted";
+      await invite.save();
+    }
+  }
 
   const jwt = signToken(user);
-  return res.json({ ok: true, token: jwt, user: { id: user._id, email: user.email, phone: user.phone, name: user.name } });
+  return res.status(201).json({
+    accessToken: jwt,
+    ok: true,
+    token: jwt,
+    user: {
+      id: user._id,
+      email: user.email,
+      phone: user.phone,
+      name: user.name,
+    },
+  });
 });
+
+r.all("/auth/register", (_req, res) => res.status(405).send("Method Not Allowed"));
 
 // POST /auth/login  { emailOrPhone, password }
 r.post("/auth/login", async (req, res) => {
