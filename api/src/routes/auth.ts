@@ -13,7 +13,7 @@ import {
   recordAuthSignupSuccess,
 } from '../observability/metrics';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
-import { emailSchema, passwordSchema, phoneSchema, sanitizeString } from '../utils/validators';
+import { emailSchema, registerSchema } from '../utils/validators';
 import {
   isAccountLocked,
   loginRateLimiter,
@@ -27,21 +27,6 @@ const router = Router();
 
 const REFRESH_TOKEN_COOKIE = 'refreshToken';
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
-
-const registerInputSchema = z.object({
-  name: z
-    .string({ required_error: 'Name is required.' })
-    .transform((value) => sanitizeString(value))
-    .pipe(
-      z
-        .string()
-        .min(1, 'Name is required.')
-        .max(100, 'Name must be 100 characters or fewer.'),
-    ),
-  email: emailSchema,
-  phone: phoneSchema.optional(),
-  password: passwordSchema,
-});
 
 const loginInputSchema = z.object({
   email: emailSchema,
@@ -81,37 +66,16 @@ const getRefreshTokenFromRequest = (req: Request): string | undefined => {
   return cookies[REFRESH_TOKEN_COOKIE];
 };
 
-const isSecureCookie = (req: Request): boolean => {
-  if (process.env.COOKIE_SECURE === 'false') {
-    return false;
-  }
-
-  if (process.env.COOKIE_SECURE === 'true') {
-    return true;
-  }
-
-  if (process.env.NODE_ENV !== 'production') {
-    return false;
-  }
-
-  const hostname = req.hostname;
-  if (!hostname) {
-    return true;
-  }
-
-  return !(hostname === 'localhost' || hostname === '127.0.0.1');
-};
-
-const getRefreshCookieOptions = (req: Request) => ({
+const getRefreshCookieOptions = () => ({
   httpOnly: true,
-  secure: isSecureCookie(req),
+  secure: process.env.NODE_ENV !== 'development',
   sameSite: 'strict' as const,
   path: '/auth',
   maxAge: REFRESH_TOKEN_TTL_MS,
 });
 
-const setRefreshCookie = (res: Response, req: Request, value: string, expiresAt?: Date): void => {
-  const options = getRefreshCookieOptions(req);
+const setRefreshCookie = (res: Response, _req: Request, value: string, expiresAt?: Date): void => {
+  const options = getRefreshCookieOptions();
   if (expiresAt) {
     res.cookie(REFRESH_TOKEN_COOKIE, value, { ...options, expires: expiresAt });
     return;
@@ -120,8 +84,8 @@ const setRefreshCookie = (res: Response, req: Request, value: string, expiresAt?
   res.cookie(REFRESH_TOKEN_COOKIE, value, options);
 };
 
-const clearRefreshCookie = (res: Response, req: Request): void => {
-  const options = getRefreshCookieOptions(req);
+const clearRefreshCookie = (res: Response, _req: Request): void => {
+  const options = getRefreshCookieOptions();
   res.clearCookie(REFRESH_TOKEN_COOKIE, options);
 };
 
@@ -152,11 +116,23 @@ type ValidationError = {
 };
 
 const formatZodErrors = (error: z.ZodError): ValidationError[] =>
-  error.issues.map((issue) => ({
-    field: issue.path.length > 0 ? issue.path.join('.') : 'root',
-    code: issue.code,
-    message: issue.message,
-  }));
+  error.issues.map((issue) => {
+    const field = issue.path.length > 0 ? issue.path.join('.') : 'root';
+
+    if (issue.code === z.ZodIssueCode.invalid_string && issue.validation === 'email') {
+      return {
+        field,
+        code: 'invalid_email',
+        message: 'Enter a valid email',
+      };
+    }
+
+    return {
+      field,
+      code: issue.code,
+      message: issue.message,
+    };
+  });
 
 const isDuplicateKeyError = (
   error: unknown,
@@ -178,58 +154,43 @@ const getDuplicateFieldName = (error: { keyPattern?: Record<string, unknown> }):
   return field;
 };
 
-const duplicateFieldMessage: Record<string, string> = {
-  email: 'Email is already registered.',
-  phone: 'Phone number is already registered.',
-};
-
-const buildDuplicateFieldResponse = (field: string) => ({
-  errors: [
-    {
-      field,
-      code: 'duplicate',
-      message: duplicateFieldMessage[field] ?? 'Value is already registered.',
-    },
-  ],
-});
-
 router.post('/register', registerRateLimiter, async (req, res) => {
   const log = req.log ?? authLogger;
+  const result = registerSchema.safeParse(req.body);
+
+  if (!result.success) {
+    res.status(400).json({ errors: formatZodErrors(result.error) });
+    return;
+  }
+
   try {
-    const input = registerInputSchema.parse(req.body);
-
-    const { email, phone, password } = input;
-    const existing = await User.findOne({ email });
-    if (existing) {
-      res.status(400).json(buildDuplicateFieldResponse('email'));
-      return;
-    }
-
-    const user = await User.create({
-      email,
-      phone,
-      password,
-    });
+    const { email, phone, password } = result.data;
+    const user = await User.create({ email, phone, password });
 
     recordAuthSignupSuccess();
     log.info({ event: 'auth.signup.success', userId: user._id.toString() });
     const { accessToken } = await mintTokens(user, req, res);
     res.status(201).json({ accessToken });
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ errors: formatZodErrors(error) });
-      return;
-    }
-
     if (isDuplicateKeyError(error)) {
       const field = getDuplicateFieldName(error) ?? 'email';
-      res.status(400).json(buildDuplicateFieldResponse(field));
+      if (field === 'email') {
+        res.status(409).json({ error: 'email_exists' });
+        return;
+      }
+
+      res.status(409).json({ error: `${field}_exists` });
       return;
     }
 
     log.error({ event: 'auth.signup.error', err: error });
     res.status(500).json({ error: 'Unable to register user.' });
   }
+});
+
+router.all('/register', (_req, res) => {
+  res.set('Allow', 'POST');
+  res.status(405).json({ error: 'Method not allowed' });
 });
 
 router.post('/login', loginRateLimiter, async (req, res) => {
