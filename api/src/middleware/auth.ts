@@ -1,4 +1,6 @@
 import type { NextFunction, Response, Request } from 'express';
+import type { Logger } from './logging';
+import type { Role } from '../types/roles';
 import { verifyAccessToken, type AccessTokenPayload } from '../utils/jwt';
 
 export interface AuthContext {
@@ -6,16 +8,21 @@ export interface AuthContext {
   email?: string;
   claims: AccessTokenPayload;
   token: string;
+  role?: Role;
 }
 
-export interface AuthenticatedRequest extends Request {
+export type AuthenticatedRequest = Request & {
   auth?: AuthContext;
-}
+  log?: Logger;
+  requestId?: string;
+};
 
-declare module 'express-serve-static-core' {
-  // eslint-disable-next-line @typescript-eslint/no-empty-interface
-  interface Request {
-    auth?: AuthContext;
+declare global {
+  namespace Express {
+    // eslint-disable-next-line @typescript-eslint/consistent-type-definitions
+    interface Request {
+      auth?: AuthContext;
+    }
   }
 }
 

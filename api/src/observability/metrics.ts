@@ -13,6 +13,10 @@ const authLoginFail = createCounter('auth_login_fail', 'Failed login attempts');
 const authSignupSuccess = createCounter('auth_signup_success', 'Successful registrations');
 const authRefreshSuccess = createCounter('auth_refresh_success', 'Successful refresh token rotations');
 const authRefreshFail = createCounter('auth_refresh_fail', 'Failed refresh token attempts');
+const securityUnauthorizedAccess = createCounter(
+  'security_unauthorized_access',
+  'Blocked requests that failed RBAC authorization',
+);
 
 export const recordAuthLoginSuccess = (): void => {
   authLoginSuccess.inc();
@@ -32,6 +36,10 @@ export const recordAuthRefreshSuccess = (): void => {
 
 export const recordAuthRefreshFail = (): void => {
   authRefreshFail.inc();
+};
+
+export const recordUnauthorizedAccessAttempt = (): void => {
+  securityUnauthorizedAccess.inc();
 };
 
 export const metricsHandler: RequestHandler = async (_req, res) => {

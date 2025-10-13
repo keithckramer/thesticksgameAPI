@@ -7,10 +7,12 @@ import mongoose from 'mongoose';
 import authRoutes from './routes/auth';
 import passwordRoutes from './routes/password';
 import { authenticate } from './middleware/auth';
+import { requireRole } from './middleware/requireRole';
 import securityHeaders from './middleware/helmet';
 import { logger, requestLoggingMiddleware } from './middleware/logging';
 import User from './models/User';
 import { metricsHandler } from './observability/metrics';
+import { Roles } from './types/roles';
 
 const app = express();
 
@@ -85,7 +87,7 @@ app.get('/metrics', metricsHandler);
 app.use('/auth', authRoutes);
 app.use('/auth', passwordRoutes);
 
-app.get('/profile', authenticate, async (req, res) => {
+app.get('/profile', authenticate, requireRole(Roles.member), async (req, res) => {
   const userId = req.auth?.userId;
 
   if (!userId) {
