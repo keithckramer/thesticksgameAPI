@@ -22,7 +22,8 @@
     "passport-local": "^1.0.0",
     "pg": "^8.7.3",
     "random-token": "0.0.8",
-    "sequelize": "^6.20.1"
+    "sequelize": "^6.20.1",
+    "zod": "^3.22.4"
   },
   "type": "module",
   "devDependencies": {
