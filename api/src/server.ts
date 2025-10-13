@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import cors, { type CorsOptions } from 'cors';
+import cookieParser from 'cookie-parser';
 import express, { type RequestHandler } from 'express';
 import type { Server } from 'http';
 import mongoose from 'mongoose';
@@ -16,15 +17,10 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-const parseOrigins = (value: string | undefined): string[] =>
-  (value ?? '')
-    .split(',')
-    .map((origin) => origin.trim())
-    .filter((origin) => origin.length > 0);
-
-const allowedOrigins = parseOrigins(
-  process.env.WEB_ORIGIN ?? process.env.CORS_ORIGINS ?? process.env.CORS_ORIGIN,
-);
+const allowedOrigins = (() => {
+  const origin = process.env.WEB_ORIGIN?.trim();
+  return origin ? [origin] : [];
+})();
 
 if (allowedOrigins.length === 0) {
   logger.warn(
@@ -56,7 +52,17 @@ const enforceAllowedOrigins: RequestHandler = (req, res, next) => {
 const corsOptions: CorsOptions = {
   origin: (origin, callback) => {
     if (!origin) {
+      if (allowedOrigins.length === 0) {
+        callback(null, false);
+        return;
+      }
+
       callback(null, true);
+      return;
+    }
+
+    if (allowedOrigins.length === 0) {
+      callback(null, false);
       return;
     }
 
@@ -70,7 +76,9 @@ app.use(requestLoggingMiddleware);
 app.use(enforceAllowedOrigins);
 app.use(cors(corsOptions));
 app.use(securityHeaders());
+app.use(cookieParser());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 app.get('/metrics', metricsHandler);
 

@@ -31,10 +31,13 @@ const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const registerInputSchema = z.object({
   name: z
     .string({ required_error: 'Name is required.' })
-    .min(1, 'Name is required.')
-    .max(100, 'Name must be 100 characters or fewer.')
-    .transform(sanitizeString)
-    .optional(),
+    .transform((value) => sanitizeString(value))
+    .pipe(
+      z
+        .string()
+        .min(1, 'Name is required.')
+        .max(100, 'Name must be 100 characters or fewer.'),
+    ),
   email: emailSchema,
   phone: phoneSchema.optional(),
   password: passwordSchema,
@@ -45,7 +48,6 @@ const loginInputSchema = z.object({
   password: z.string({ required_error: 'Password is required.' }).min(1, 'Password is required.'),
 });
 
-type RegisterInput = z.infer<typeof registerInputSchema>;
 type LoginInput = z.infer<typeof loginInputSchema>;
 
 const sanitizeEmail = (value: string): string => value.trim().toLowerCase();
@@ -143,34 +145,85 @@ const handleAuthResponse = async (user: IUser, req: Request, res: Response, stat
   });
 };
 
+type ValidationError = {
+  field: string;
+  code: string;
+  message: string;
+};
+
+const formatZodErrors = (error: z.ZodError): ValidationError[] =>
+  error.issues.map((issue) => ({
+    field: issue.path.length > 0 ? issue.path.join('.') : 'root',
+    code: issue.code,
+    message: issue.message,
+  }));
+
+const isDuplicateKeyError = (
+  error: unknown,
+): error is { code: number; keyPattern?: Record<string, unknown> } =>
+  Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      (error as { code?: number }).code === 11000,
+  );
+
+const getDuplicateFieldName = (error: { keyPattern?: Record<string, unknown> }): string | undefined => {
+  const keyPattern = error.keyPattern;
+  if (!keyPattern || typeof keyPattern !== 'object') {
+    return undefined;
+  }
+
+  const [field] = Object.keys(keyPattern);
+  return field;
+};
+
+const duplicateFieldMessage: Record<string, string> = {
+  email: 'Email is already registered.',
+  phone: 'Phone number is already registered.',
+};
+
+const buildDuplicateFieldResponse = (field: string) => ({
+  errors: [
+    {
+      field,
+      code: 'duplicate',
+      message: duplicateFieldMessage[field] ?? 'Value is already registered.',
+    },
+  ],
+});
+
 router.post('/register', registerRateLimiter, async (req, res) => {
   const log = req.log ?? authLogger;
   try {
-    const input = registerInputSchema.parse(req.body) as RegisterInput;
+    const input = registerInputSchema.parse(req.body);
 
-    const existing = await User.findOne({ email: sanitizeEmail(input.email) });
+    const { email, phone, password } = input;
+    const existing = await User.findOne({ email });
     if (existing) {
-      res.status(400).json({ error: 'Email is already registered.' });
+      res.status(400).json(buildDuplicateFieldResponse('email'));
       return;
     }
 
     const user = await User.create({
-      email: input.email,
-      phone: input.phone,
-      password: input.password,
+      email,
+      phone,
+      password,
     });
 
     recordAuthSignupSuccess();
     log.info({ event: 'auth.signup.success', userId: user._id.toString() });
-    await handleAuthResponse(user, req, res, 201);
+    const { accessToken } = await mintTokens(user, req, res);
+    res.status(201).json({ accessToken });
   } catch (error) {
     if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors[0]?.message ?? 'Invalid input.' });
+      res.status(400).json({ errors: formatZodErrors(error) });
       return;
     }
 
-    if (error && typeof error === 'object' && 'code' in error && (error as { code?: number }).code === 11000) {
-      res.status(400).json({ error: 'Email is already registered.' });
+    if (isDuplicateKeyError(error)) {
+      const field = getDuplicateFieldName(error) ?? 'email';
+      res.status(400).json(buildDuplicateFieldResponse(field));
       return;
     }
 
