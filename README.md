@@ -57,6 +57,10 @@ To migrate and seed the tables the commands are:
 - npm run seed
 - npm run clear
 
+Role-based access tooling:
+- npm run migrate # backfills missing roles and ensures an admin exists
+- npm run show:users # lists user accounts with their assigned roles
+
 To start the API you need to run the command `npm run start:dev`. For example, your React project can use it by adding in your package.json `"proxy": "http://localhost:8080/"` if in your local development. Check your .env variables to match your URLs.
 
 It offers endpoint for login with the default users or it can register a new one. In the case of forgetting the password, the user can request a reset passsword and reset it. For getting and updating the user's profile it uses a Profile API.

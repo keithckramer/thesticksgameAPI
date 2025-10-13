@@ -13,6 +13,8 @@ import {
   recordAuthSignupSuccess,
 } from '../observability/metrics';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
+import { features } from '../config/features';
+import { DEFAULT_ROLE } from '../types/roles';
 import { emailSchema, registerSchema } from '../utils/validators';
 import {
   isAccountLocked,
@@ -41,6 +43,7 @@ const buildUserResponse = (user: IUser) => ({
   id: user._id.toString(),
   email: user.email,
   phone: user.phone ?? null,
+  role: user.role,
 });
 
 const parseCookies = (cookieHeader: string | undefined): Record<string, string> => {
@@ -95,7 +98,7 @@ const mintTokens = async (user: IUser, req: Request, res: Response) => {
   const refreshToken = signRefreshToken({ sub: user._id.toString(), jti });
   await RefreshToken.create({ userId: user._id, jti, expiresAt });
 
-  const accessToken = signAccessToken({ sub: user._id.toString(), email: user.email });
+  const accessToken = signAccessToken({ sub: user._id.toString(), email: user.email, role: user.role });
   setRefreshCookie(res, req, refreshToken, expiresAt);
 
   return { accessToken, refreshToken, jti, expiresAt };
@@ -164,8 +167,9 @@ router.post('/register', registerRateLimiter, async (req, res) => {
   }
 
   try {
-    const { email, phone, password } = result.data;
-    const user = await User.create({ email, phone, password });
+    const { email, phone, password, role } = result.data;
+    const assignedRole = features.rbac ? role : DEFAULT_ROLE;
+    const user = await User.create({ email, phone, password, role: assignedRole });
 
     recordAuthSignupSuccess();
     log.info({ event: 'auth.signup.success', userId: user._id.toString() });

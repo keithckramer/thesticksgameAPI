@@ -104,6 +104,7 @@ app.get('/profile', authenticate, async (req, res) => {
       id: user._id.toString(),
       email: user.email,
       phone: user.phone ?? null,
+      role: user.role,
     },
   });
 });
