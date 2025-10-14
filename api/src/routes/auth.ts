@@ -1,4 +1,4 @@
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import type { Request, Response } from 'express';
 import { Router } from 'express';
 import { z } from 'zod';
@@ -12,6 +12,11 @@ import {
   recordAuthRefreshSuccess,
   recordAuthSignupSuccess,
 } from '../observability/metrics';
+import {
+  emitLoginAttempt,
+  emitLoginFailure,
+  emitLoginSuccess,
+} from '../observability/analytics';
 import { signAccessToken, signRefreshToken, verifyRefreshToken } from '../utils/jwt';
 import { features } from '../config/features';
 import { DEFAULT_ROLE } from '../types/roles';
@@ -30,10 +35,12 @@ const router = Router();
 const REFRESH_TOKEN_COOKIE = 'refreshToken';
 const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
-const loginInputSchema = z.object({
-  email: emailSchema,
-  password: z.string({ required_error: 'Password is required.' }).min(1, 'Password is required.'),
-});
+const loginInputSchema = z
+  .object({
+    email: emailSchema,
+    password: z.string({ required_error: 'Password is required.' }).min(1, 'Password is required.'),
+  })
+  .strict();
 
 type LoginInput = z.infer<typeof loginInputSchema>;
 
@@ -112,6 +119,37 @@ const handleAuthResponse = async (user: IUser, req: Request, res: Response, stat
   });
 };
 
+const extractOrigin = (req: Request): string => {
+  const { origin } = req.headers;
+  if (Array.isArray(origin)) {
+    return origin[0] ?? 'unknown';
+  }
+
+  if (typeof origin === 'string' && origin.trim().length > 0) {
+    return origin;
+  }
+
+  return 'unknown';
+};
+
+const hashIpAddress = (req: Request): string => {
+  const ip = req.ip ?? req.socket.remoteAddress ?? '';
+  if (!ip) {
+    return 'unknown';
+  }
+
+  return createHash('sha256').update(ip).digest('hex');
+};
+
+const requestHasEmail = (body: unknown): boolean => {
+  if (!body || typeof body !== 'object') {
+    return false;
+  }
+
+  const email = (body as Record<string, unknown>).email;
+  return typeof email === 'string' && email.trim().length > 0;
+};
+
 type ValidationError = {
   field: string;
   code: string;
@@ -119,22 +157,35 @@ type ValidationError = {
 };
 
 const formatZodErrors = (error: z.ZodError): ValidationError[] =>
-  error.issues.map((issue) => {
+  error.issues.flatMap((issue) => {
+    if (issue.code === z.ZodIssueCode.unrecognized_keys) {
+      const keys = 'keys' in issue && Array.isArray(issue.keys) ? issue.keys : [];
+      return keys.map((key) => ({
+        field: key,
+        code: 'unrecognized_key',
+        message: 'This field is not allowed.',
+      }));
+    }
+
     const field = issue.path.length > 0 ? issue.path.join('.') : 'root';
 
     if (issue.code === z.ZodIssueCode.invalid_string && issue.validation === 'email') {
-      return {
-        field,
-        code: 'invalid_email',
-        message: 'Enter a valid email',
-      };
+      return [
+        {
+          field,
+          code: 'invalid_email',
+          message: 'Enter a valid email',
+        },
+      ];
     }
 
-    return {
-      field,
-      code: issue.code,
-      message: issue.message,
-    };
+    return [
+      {
+        field,
+        code: issue.code,
+        message: issue.message,
+      },
+    ];
   });
 
 const isDuplicateKeyError = (
@@ -199,13 +250,29 @@ router.all('/register', (_req, res) => {
 
 router.post('/login', loginRateLimiter, async (req, res) => {
   const log = req.log ?? authLogger;
+  const origin = extractOrigin(req);
+  const ipHash = hashIpAddress(req);
+
+  emitLoginAttempt({
+    origin,
+    hasEmail: requestHasEmail(req.body),
+    ipHash,
+  });
   try {
-    const input = loginInputSchema.parse(req.body) as LoginInput;
+    const parseResult = loginInputSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      emitLoginFailure({ origin, reason: 'validation', ipHash });
+      res.status(400).json({ errors: formatZodErrors(parseResult.error) });
+      return;
+    }
+
+    const input = parseResult.data as LoginInput;
     const identifier = input.email;
 
     if (isAccountLocked(identifier)) {
       recordAuthLoginFail();
       log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
+      emitLoginFailure({ origin, reason: 'auth', ipHash });
       res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
       return;
     }
@@ -216,12 +283,14 @@ router.post('/login', loginRateLimiter, async (req, res) => {
       if (lockedUntil) {
         recordAuthLoginFail();
         log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
+        emitLoginFailure({ origin, reason: 'auth', ipHash });
         res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
         return;
       }
 
       recordAuthLoginFail();
       log.warn({ event: 'auth.login.failure', reason: 'user_not_found' });
+      emitLoginFailure({ origin, reason: 'auth', ipHash });
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
     }
@@ -229,14 +298,14 @@ router.post('/login', loginRateLimiter, async (req, res) => {
     const passwordValid = await user.comparePassword(input.password);
     if (!passwordValid) {
       const lockedUntil = registerFailedLoginAttempt(identifier);
+      recordAuthLoginFail();
+      emitLoginFailure({ origin, reason: 'auth', ipHash });
       if (lockedUntil) {
-        recordAuthLoginFail();
         log.warn({ event: 'auth.login.failure', reason: 'account_locked' });
         res.status(429).json({ error: 'Too many login attempts. Please try again later.' });
         return;
       }
 
-      recordAuthLoginFail();
       log.warn({ event: 'auth.login.failure', reason: 'invalid_credentials', userId: user._id.toString() });
       res.status(401).json({ error: 'Invalid credentials.' });
       return;
@@ -245,13 +314,9 @@ router.post('/login', loginRateLimiter, async (req, res) => {
     resetLoginFailures(identifier);
     recordAuthLoginSuccess();
     log.info({ event: 'auth.login.success', userId: user._id.toString() });
+    emitLoginSuccess({ origin, userId: user._id.toString(), ipHash });
     await handleAuthResponse(user, req, res, 200);
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      res.status(400).json({ error: error.errors[0]?.message ?? 'Invalid input.' });
-      return;
-    }
-
     log.error({ event: 'auth.login.error', err: error });
     res.status(500).json({ error: 'Unable to process login.' });
   }
