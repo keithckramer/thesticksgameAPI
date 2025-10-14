@@ -17,17 +17,23 @@ const app = express();
 app.set('trust proxy', 1);
 app.disable('x-powered-by');
 
-const allowedOrigins = (() => {
-  const origin = process.env.WEB_ORIGIN?.trim();
-  return origin ? [origin] : [];
-})();
+const DEFAULT_ALLOWED_ORIGINS = ['http://localhost:3000'];
 
-if (allowedOrigins.length === 0) {
+const parseAllowedOrigins = (value: string | undefined): string[] =>
+  (value ?? '')
+    .split(',')
+    .map((origin) => origin.trim())
+    .filter((origin) => origin.length > 0);
+
+const configuredOrigins = parseAllowedOrigins(process.env.WEB_ORIGIN);
+const allowedOrigins = configuredOrigins.length > 0 ? configuredOrigins : DEFAULT_ALLOWED_ORIGINS;
+
+if (configuredOrigins.length === 0) {
   logger.warn(
     {
       event: 'security.cors.configuration_missing',
     },
-    'No allowed origins configured. Browser requests will be rejected.',
+    'No allowed origins configured. Falling back to defaults.',
   );
 }
 
